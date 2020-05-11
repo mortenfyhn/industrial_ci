@@ -97,6 +97,41 @@ function run_clang_tidy_check {
     fi
 }
 
+function run_roslaunch_check {
+    local target_ws=$1; shift
+    local extend=$1
+
+    ici_run "install_roslaunch_check" ici_install_pkgs_for_command roslaunch-check ros-"$ROS_DISTRO"-roslaunch ros-"$ROS_DISTRO"-rosbash
+    ici_exec_in_workspace "$extend" "$target_ws" rosrun roslaunch roslaunch-check --help
+
+    errors=0
+    num_skipped=0
+    launch_files=$(find "$target_ws" -name '*.launch')
+
+    for launch_file in $launch_files; do
+        head=$(head -n 1 "$launch_file")
+        if [[ "$head" == "<!-- roslaunch-check ignore -->" ]]; then
+            echo -e "Skipping ${launch_file}...\n"
+            num_skipped=$(( num_skipped + 1 ))
+            continue
+        fi
+
+        echo "Checking ${launch_file}..."
+        ici_exec_in_workspace "$extend" "$target_ws" rosrun roslaunch roslaunch-check "$launch_file"
+        # ici_with_ws "$target_ws" ici_run "roslaunch_check" ici_exec_in_workspace "$extend" "$target_ws" rosrun roslaunch roslaunch-check "$launch_file"
+        errors=$(( errors + $? ))
+        echo
+    done
+
+    if [[ "$num_skipped" -gt 0 ]]; then
+        echo "NOTICE: Skipped ${num_skipped} files"
+    fi
+
+    if [ "$errors" -gt 0 ]; then
+        ici_error "$errors launch files failed roslaunch-check"
+    fi
+}
+
 function run_source_tests {
     # shellcheck disable=SC1090
     source "${ICI_SRC_PATH}/builders/$BUILDER.sh" || ici_error "Builder '$BUILDER' not supported"
@@ -143,6 +178,10 @@ function run_source_tests {
     fi
     if [ "${CLANG_TIDY:-false}" != false ]; then
         run_clang_tidy_check "$target_ws"
+    fi
+
+    if [ "$ROSLAUNCH_CHECK" == "true" ]; then
+        run_roslaunch_check "$target_ws" "$extend"
     fi
 
     extend="$target_ws/install"
